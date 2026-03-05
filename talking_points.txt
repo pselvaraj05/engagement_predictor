@@ -1,0 +1,254 @@
+TALKING POINTS — Engagement Prediction Deck
+=============================================
+
+
+SLIDE 1: Title
+---------------
+- We built a suite of ML models to understand and predict engagement on LinkedIn shares — not just how much engagement, but who engages and what the audience mix looks like.
+- This work spans three complementary models that answer different business questions about content performance.
+- Everything is built on real LinkedIn engagement data: 52 million engagements across 4.8 million shares.
+
+
+SLIDE 2: Problem Overview
+--------------------------
+- Model 1 answers "how many engagements will this get?" — it's the volume predictor, useful for identifying which posts will go viral.
+- Model 2 flips the question to "who will engage?" — given a share, it predicts the job role, industry, and company of the person likely to engage.
+- Model 3 is the most actionable for content strategy — instead of predicting one individual, it predicts the full audience breakdown, like "this post will attract 40% marketing, 30% sales."
+- Each model builds on the same feature pipeline but frames the prediction task differently depending on the business need.
+
+
+SLIDE 3: Data Overview
+-----------------------
+- We're working with 52.4 million engagements, 4.8 million shares, and 9 million LinkedIn profiles — this is substantial scale.
+- The biggest data challenge is completeness: only 7.5% of engagements link to profiles where all three targets — job role, industry, and company — are known. That takes us from 52 million down to about 3.9 million usable rows.
+- We handle rare categories by collapsing anything below a frequency threshold into an "other" bucket — this prevents the model from overfitting to categories it's seen only a handful of times.
+- All models use a time-based train/test split rather than random, which is critical because random splits would leak future information and inflate results.
+
+
+SLIDE 4: Feature Engineering
+------------------------------
+- Features are shared across all three models — TF-IDF on the post text captures what the sharer wrote, content signals capture structural patterns like questions or URLs, temporal features capture when it was posted, and the sharer's own profile provides context about who's sharing.
+- TF-IDF uses up to 2,000 unigram and bigram features — this captures both individual keywords and two-word phrases that signal topic and tone.
+- The sharer's profile is surprisingly predictive — a VP of Sales sharing a post attracts a very different audience than an engineer sharing the same content.
+- Everything gets combined into a single sparse feature matrix: one-hot encoded categoricals, scaled numerics, and TF-IDF text vectors stacked together.
+
+
+SLIDE 5: Model 1 Method — Hierarchical Engagement Prediction
+--------------------------------------------------------------
+- This is a three-stage hierarchical model. Stage 1 predicts if this post be popular or not? Stage 2 refines that into four tiers. Stage 3 estimates the actual count.
+- The hierarchical design is intentional — a flat 4-class classifier struggles because the tiers are so imbalanced. By splitting into binary decisions first, we get much better performance on the rare but important high/viral categories.
+- We use stratified sampling to oversample viral posts, which are naturally rare — only about 5% of shares cross the "popular" threshold of 50 engagements.
+- The count regression uses a Tweedie objective, which is designed for count data with extreme right skew — exactly what engagement counts look like.
+
+
+SLIDE 6: Model 1 Results
+--------------------------
+- The headline number is 95.3% recall on popular post detection — we catch nearly all high-performing content, which is exactly what you want for a content strategy tool.
+- ROC-AUC of 0.950 means the model has excellent discrimination between popular and non-popular posts across all probability thresholds.
+- The precision tradeoff is 58% — meaning some posts predicted as popular won't actually be. But for a "don't miss the winners" use case, high recall with moderate precision is the right tradeoff.
+- Tier accuracy across all four classes is 72.5%, which is strong given that this is a 4-class problem with highly imbalanced categories.
+- Count MAE of 49.8 sounds large, but engagement counts range from 0 to 50,000+ — and the tier-specific regressors keep predictions within reasonable bounds for each tier.
+
+
+SLIDE 7: ROC Curve — Popularity Detection
+-------------------------------------------
+- This ROC curve shows Stage 1 performance — the binary popular vs not popular decision. AUC of 0.950 means we're far above the random baseline diagonal.
+- The curve hugs the top-left corner, which means at most operating points we get very high recall without sacrificing too much precision.
+- In practice, we can pick a threshold depending on the business need — if we want to catch every potential viral post, we move right along the curve; if we want fewer false alarms, we stay left.
+
+
+SLIDE 8: 4-Tier Confusion Matrix (Counts)
+-------------------------------------------
+- The diagonal shows correct predictions — the model gets the majority right in every tier, especially Low and High.
+- Most confusion happens between adjacent tiers: Medium posts misclassified as High, and Low posts misclassified as Medium. This makes sense — the boundaries between tiers are somewhat arbitrary.
+- The Viral tier has the smallest absolute counts, so even a few misclassifications are proportionally significant.
+- Notice the model almost never predicts a Low post as Viral or vice versa — the extreme tiers are well separated.
+
+
+SLIDE 9: 4-Tier Confusion Matrix (Recall %)
+---------------------------------------------
+- Looking at recall percentages normalizes for class imbalance and tells us what fraction of each actual tier we correctly identify.
+- Low tier has 82.8% recall, High has 84.4% — these are the strongest. The model is best at identifying clearly low-engagement and clearly high-engagement content.
+- Medium is harder at 59.7% — these are the "borderline" posts that could go either way, and the model often pushes them into adjacent tiers.
+- Viral recall is 73.1% — impressive given how rare viral posts are and how extreme their behavior is.
+
+
+SLIDE 10: Actual vs Predicted Tier Distribution
+-------------------------------------------------
+- This bar chart compares the overall distribution of actual tiers vs what the model predicts.
+- The model slightly over-predicts High and Viral, and under-predicts Medium — this is because we intentionally boosted recall for popular posts.
+- The distribution shape is preserved well — the model understands the relative frequency of each tier.
+- The Viral over-prediction is a deliberate tradeoff: it's better to flag too many potential viral posts than to miss them.
+
+
+SLIDE 11: Model 2 Method — Engager Profile Prediction
+------------------------------------------------------
+- This model operates at the engagement level — each training row is a (share, engager) pair, so a share with 50 engagements generates 50 training examples.
+- We train three independent classifiers because the targets have very different characteristics — company has 47 classes with strong signal, while job role has 13 broader classes that are harder to distinguish.
+- The critical data engineering step is pre-filtering profiles before joining with the 52 million engagement table — this avoids out-of-memory crashes by reducing the join size upfront.
+- Top-K accuracy is the right metric here because in practice, knowing the top 3 likely audience segments is just as useful as knowing the exact one — it gives content creators a clear picture of who they're reaching.
+
+
+SLIDE 12: Model 2 Results
+--------------------------
+- Company prediction is the standout: 83% top-1 accuracy across 47 companies. The employer_client_id provides strong signal because companies tend to have consistent engagement patterns.
+- Industry reaches 73% at top-3, meaning for three-quarters of engagements, the true industry is in our top 3 predictions — very useful for targeting.
+- Job role is the hardest at 30% top-1, but it climbs to 71% at top-5. This makes sense — roles are inherently diverse and a "marketing" post might attract both marketers and salespeople.
+- These results are from a 50K sample. Running on the full 3.9 million rows should improve accuracy further, especially for rare categories.
+- The takeaway is that we can meaningfully predict the professional profile of who will engage with a piece of content.
+
+
+SLIDE 13: Power Analysis Method
+---------------------------------
+- This answers a practical business question: if we lose access to the LinkedIn data feed and have to scrape instead, how much data do we actually need?
+- The simulation uses our existing dataset as ground truth and progressively restricts how many shares and engagements per share the model can see during training.
+- We test across a grid: 50 to 20,000 shares, and 1 to 10 scraped engagements per share, with 3 random trials each for confidence intervals.
+- Fixed label sets are critical — we compute the category vocabulary once from the full data so that classification difficulty stays consistent. Without this, small samples collapse everything to "other" and artificially inflate accuracy.
+- The initial run used a lightweight model for speed. We've updated it to match the full 500-tree configuration for realistic estimates.
+
+
+SLIDE 14: Power Analysis Results
+----------------------------------
+- Company prediction saturates early — just 200 shares gets you to near-maximum accuracy. Companies have strong, consistent engagement patterns.
+- Job role needs about 5,000 shares to plateau, and industry is the most data-hungry at 20,000 shares.
+- The practical recommendation is: track at least 20,000 shares and scrape 3-5 engager profiles per share, totaling about 80,000 profile lookups.
+- Important caveat: these numbers are from the 50-tree model run. The updated 500-tree run will likely show both higher accuracy and potentially different saturation points.
+
+
+SLIDE 15: How Many Shares Do You Need?
+----------------------------------------
+- This learning curve shows top-3 accuracy as we increase the number of shares tracked, with all available engagements per share.
+- Job role accuracy climbs steadily and plateaus around 5,000 shares at ~0.41 top-3. Beyond that, more shares don't help much.
+- Industry keeps climbing even at 20,000 shares, suggesting it could benefit from even more data.
+- Company shows erratic behavior at larger scales in this 50-tree run — the updated 500-tree version should stabilize these curves.
+
+
+SLIDE 16: How Many Engagements per Share?
+------------------------------------------
+- This holds the number of shares fixed at 5,000 and varies how many engager profiles we scrape per share.
+- For job role, even 1 engagement per share gives reasonable signal, and more engagements don't dramatically help.
+- Industry and company show diminishing returns after about 3 engagements per share — scraping beyond that adds cost without much accuracy gain.
+- The practical takeaway: 3-5 scraped profiles per share is the sweet spot for cost vs accuracy.
+
+
+SLIDE 17: Top-3 Accuracy Heatmap — Shares vs Engagements
+----------------------------------------------------------
+- This heatmap shows the full grid: how top-3 accuracy changes across both dimensions simultaneously.
+- For job role, the number of shares matters more than engagements per share — the accuracy jumps happen along the horizontal axis.
+- For industry, the 5,000-share column shows the best results, with 3+ engagements per share needed.
+- For company, there are some anomalies in this lightweight model run — the updated 500-tree version will give cleaner patterns here.
+- The main insight: invest in breadth (more shares) over depth (more engagements per share).
+
+
+SLIDE 18: Model 3 Method — Audience Distribution Predictor
+------------------------------------------------------------
+- This is a fundamentally different framing: instead of predicting one person's profile, we predict the entire audience distribution for a share.
+- It operates at the share level — one row per share, with the target being a proportion vector (e.g., 40% Marketing, 30% Sales, 20% Engineering, 10% Other).
+- This is more natural and less noisy than individual classification — aggregating over all engagers smooths out the randomness of any single person engaging.
+- We use multi-output regression with LightGBM, one regressor per category, then clip and re-normalize predictions to valid probability distributions.
+- The evaluation uses distribution-comparison metrics: cosine similarity measures shape alignment, Jensen-Shannon divergence measures statistical distance, and top-K overlap checks if we get the dominant segments right.
+
+
+SLIDE 19: Model 3 Results — Audience Distribution Predictor
+-------------------------------------------------------------
+- The headline: we now predict five target dimensions — job role, industry, company, job level, and country — giving a comprehensive audience profile for each share.
+- Cosine similarity ranges from 0.757 to 0.796 across the original three targets — the predicted distributions closely match actual audience breakdowns. Job level and country results are TBD pending the first full run.
+- Company distribution is the strongest at 0.796 cosine similarity and 79.2% top-1 match — we correctly identify the dominant company in nearly 4 out of 5 shares.
+- Proportion MAE is remarkably low: 0.47% per category for company, 0.83% for industry, 3.7% for job role — the predicted percentages are very close to actual.
+- You'll notice company top-3 and top-5 overlap are lower than top-1 — this is a limitation of the regressor approach, not the data. The regressor trains 192 independent models, one per company. Most companies have near-zero proportions (~0.5%), so tiny prediction errors shuffle their rankings at positions 2 through 5, making overlap worse as K increases.
+- This is why we ran the classifier comparison in the next slides — the classifier approach fixes this by using softmax probabilities that are naturally ranked, achieving 72.6% top-3 for company at 20K shares versus the regressor's 26.9%.
+- This was trained on 155K shares with 31K held out for testing — much larger scale than the profile predictor, because we aggregate to the share level.
+- The key advantage over Model 2: instead of predicting one person, we predict the full audience mix — this is directly what content strategists need.
+
+
+SLIDE 20: Predicted vs Actual — Job Role Distribution
+-------------------------------------------------------
+- This bar chart compares the average predicted vs actual proportion for each job role category across all test shares.
+- The model captures the shape well — sales, professional services, and marketing are the three largest segments, and the model gets their proportions right.
+- The small errors are systematic and consistent — the model slightly over-predicts marketing and under-predicts professional services, but by less than 1 percentage point.
+
+
+SLIDE 21: Predicted vs Actual — Industry Distribution
+------------------------------------------------------
+- Industry has 114 categories, making this a much harder distribution to predict than job role's 25.
+- Despite the complexity, the model achieves 0.770 cosine similarity and the top categories align well.
+- IT and computer software dominate — the model correctly captures that these two industries account for about a third of all engagements.
+
+
+SLIDE 22: Predicted vs Actual — Company Distribution
+-----------------------------------------------------
+- Company has 192 categories — the most fine-grained target — yet achieves the best cosine similarity at 0.796.
+- This makes sense: companies have strong, consistent engagement patterns. A Workday share attracts Workday employees predictably.
+- The top-1 match of 79.2% means we correctly identify the dominant company for 4 out of 5 shares.
+
+
+SLIDE 23: Top-1 Proportion Scatter Plot
+-----------------------------------------
+- This scatter plot shows predicted vs actual proportion for the top-1 (dominant) category in each share.
+- Points along the diagonal indicate perfect predictions — the tighter the cluster around the diagonal, the better.
+- The spread is wider at lower proportions — when the audience is more evenly distributed, the dominant segment is harder to predict precisely.
+
+
+SLIDE 24: Distribution Metrics Summary
+----------------------------------------
+- This summary chart shows all metrics side by side for the three target dimensions.
+- The pattern is clear: company is easiest, industry is middle, job role is hardest — consistent with what we saw in Model 2.
+- Jensen-Shannon divergence around 0.44-0.47 indicates the predicted and actual distributions are statistically close, though not identical.
+- The combination of high cosine similarity with low MAE confirms the model captures both the shape and magnitude of audience distributions.
+
+
+SLIDE: Distribution Sample Size & Model Comparison — Method
+--------------------------------------------------------------
+- The regressor approach (MultiOutputRegressor) trains one model per category independently — it doesn't know proportions must sum to 1, and small errors in predicted proportions easily shuffle category rankings.
+- The classifier approach reframes the same problem: instead of predicting every proportion, predict which category dominates and use softmax probabilities for ranking. Same LightGBM algorithm, different framing.
+- We test all five target dimensions (job role, industry, company, job level, country) at 5,000 / 10,000 / 20,000 shares with 3 random trials each, using time-based splits and identical features, to see how both approaches scale with data.
+- The key question: does the classifier's ranking-optimised softmax objective beat the regressor's independent proportion estimation for top-K accuracy?
+
+
+SLIDE: Distribution Predictor — Top-3 & Top-5 Results
+-------------------------------------------------------
+- The classifier approach should show substantially better top-3 and top-5 accuracy, especially for company and industry, because softmax directly optimises for ranking.
+- The regressor's top-K overlap is limited by independent per-category predictions — small errors in absolute proportions cause wrong rankings even when the overall distribution shape is captured well.
+- More shares help both approaches, but the classifier benefits more from additional data because it learns category decision boundaries rather than proportion magnitudes.
+- Job level and country results will fill in once the sample analysis is re-run with the expanded target set.
+- The practical recommendation: use the classifier for top-K predictions (who dominates?), keep the regressor for full distribution estimation (what's the exact audience mix?).
+
+
+SLIDE: Top-3 Accuracy Learning Curve
+--------------------------------------
+- This shows how top-3 accuracy scales from 5K to 20K shares for both approaches.
+- The classifier (solid lines) should consistently outperform the regressor (dashed lines) across all dimensions and sample sizes.
+- Diminishing returns are expected beyond 10K-20K shares, consistent with the power analysis findings.
+
+
+SLIDE: Top-5 Accuracy Learning Curve
+--------------------------------------
+- Top-5 is more forgiving — both approaches should perform better here since there are more slots to match.
+- The gap between regressor and classifier may narrow at top-5 versus top-3, since the regressor's ranking errors are less likely to push the true category outside the top 5.
+
+
+SLIDE: Regressor vs Classifier — Side-by-Side Comparison
+----------------------------------------------------------
+- This bar chart directly compares both approaches at the largest sample size tested, showing top-3 and top-5 side by side.
+- The classifier advantage should be most pronounced for company (many categories) and industry (medium categories), and smallest for job role (fewest categories).
+- The takeaway: LightGBM is the right algorithm — the improvement comes from switching from regression to classification framing for the ranking task.
+
+
+SLIDE: Why Job Role Is Hard to Predict
+-----------------------------------------
+- Job role is consistently the hardest target across all three models. The root cause is structural: job roles cross-cut industries and content topics in a way that company and industry do not.
+- Company is easy because professional networks cluster by employer — a Workday share attracts Workday employees predictably. Industry is moderately easy because post content correlates with topic domain. But job role does not correlate cleanly with content — a post about leadership attracts VPs from every industry and company.
+- The text features are also a limiting factor. TF-IDF treats 'pipeline generation' and 'quota attainment' as unrelated terms even though both signal a Sales audience. Sentence transformer embeddings would capture this semantic relationship and are the single highest-ROI improvement available.
+- The ground truth is also noisier for job role than for company. With the minimum of 5 complete-profile engagements per share, a single engagement shifts job role proportions by 20%. Raising that floor to 15 or 20 engagements would give cleaner distributions at the cost of fewer training shares.
+- On the moderate-impact side: explicitly engineering sharer role × content type interaction features would help. A VP of Sales sharing a post about CRM attracts a very different role mix than a VP of Engineering sharing the same post. That interaction is not captured in the current feature set.
+- Hierarchical grouping — collapsing 25 job role classes into 8 broader functional buckets like Technical, Commercial, Marketing, and Executive — would also improve accuracy by reducing label noise within each bucket. Once the broad function is predicted, a second-stage model can refine within it.
+- The bottom line: the algorithm is not the issue, and more data alone will not close the gap. The ceiling for job role prediction will rise most from better text representations and cleaner ground truth labels.
+
+
+SLIDE 25: Summary & Next Steps
+--------------------------------
+- We now have three completed models: volume prediction with 95% recall, profile classification with up to 93% top-5 accuracy, and distribution prediction with 0.80 cosine similarity.
+- The distribution predictor is the most actionable — it directly tells content creators "this post will attract 40% marketing, 30% sales" using just the text and sharer profile.
+- Remaining work: run the profile predictor on the full dataset (currently 50K sample), and re-run the power analysis with the full-strength 500-tree model.
+- A future improvement would be replacing TF-IDF with sentence transformer embeddings for richer text representation — this could particularly help the job role predictions.
+- The bottom line: share content and sharer profile are strong predictors of both engagement volume and audience composition.

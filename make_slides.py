@@ -561,54 +561,55 @@ add_bullets(slide, Inches(0.8), Inches(2.05), Inches(5.3), Inches(4.2), [
     "But the real business question is:",
     "'What audience mix will this post attract?'",
     "",
-    "Distribution prediction is more natural:",
-    "     Operates at share level (1 row per share)",
-    "     Target is a proportion vector per category",
-    "     E.g., '40% Marketing, 30% Sales, 20% Eng'",
-    "     Less noisy than individual predictions",
-    "     Directly actionable for content strategy",
+    "Classifier approach (dominant category):",
+    "     One LGBMClassifier per dimension",
+    "     Predicts 'which category dominates?'",
+    "     Softmax probabilities = ranked breakdown",
+    "     Directly optimises for top-K accuracy",
+    "     Actionable: '42% Sales, 24% Marketing, ...'",
 ], size=13, color=DARK)
 
 add_card(slide, Inches(6.6), Inches(1.5), Inches(6.2), Inches(2.5))
 add_textbox(slide, Inches(6.9), Inches(1.6), Inches(5.5), Inches(0.35),
             "Method", size=18, color=RGBColor(0x2E, 0xCC, 0x71), bold=True)
 add_bullets(slide, Inches(6.9), Inches(2.05), Inches(5.7), Inches(1.6), [
-    "Aggregate engagements per share into proportion vectors",
-    "Filter shares with >= 5 complete-profile engagements",
-    "Multi-output regression (LightGBM per category)",
-    "Clip negatives and re-normalize to valid distributions",
+    "For each share, find the dominant engager category",
+    "Filter shares with >= 3 qualifying engagements",
+    "Train one LGBMClassifier per dimension (5 total)",
+    "predict_proba -> ranked audience breakdown",
 ], size=13, color=DARK)
 
 add_card(slide, Inches(6.6), Inches(4.2), Inches(6.2), Inches(2.4))
 add_textbox(slide, Inches(6.9), Inches(4.3), Inches(5.5), Inches(0.35),
             "Evaluation Metrics", size=18, color=BLUE, bold=True)
 add_bullets(slide, Inches(6.9), Inches(4.75), Inches(5.7), Inches(1.6), [
+    "Top-K Accuracy (is true dominant in top K?)",
+    "Jensen-Shannon Divergence (0.0 = identical dists)",
     "Cosine Similarity (1.0 = perfect match)",
-    "Jensen-Shannon Divergence (0.0 = identical)",
-    "Top-K Category Overlap (dominant categories correct?)",
-    "Proportion MAE (average error per category)",
+    "Trained on ~15K shares, tested on ~44K shares",
 ], size=13, color=DARK)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SLIDE 13: Model 3 — Results
 # ═══════════════════════════════════════════════════════════════════════════════
 slide = prs.slides.add_slide(LY_BLANK)
-slide_title(slide, "Model 3: Results", "Audience Distribution Predictor (155K train / 31K test)")
+slide_title(slide, "Model 3: Results",
+            "Audience Distribution Classifier (~15K train / ~44K test per dimension)")
 section_label(slide, "Model 3 - Results")
 
 # Metric cards row
 metric_card(slide, Inches(0.3), Inches(1.5), Inches(3.0), Inches(1.0),
-            "Best Cosine Similarity", "0.796", BLUE)
+            "Best Top-1 Accuracy", "95.8%", BLUE)
 metric_card(slide, Inches(3.5), Inches(1.5), Inches(3.0), Inches(1.0),
-            "Best JS Divergence", "0.438", RGBColor(0x2E, 0xCC, 0x71))
+            "Best Top-3 Accuracy", "98.4%", RGBColor(0x2E, 0xCC, 0x71))
 metric_card(slide, Inches(6.7), Inches(1.5), Inches(3.0), Inches(1.0),
-            "Best Top-1 Match", "79.2%", YELLOW)
+            "Best Cosine Sim", "1.000", YELLOW)
 metric_card(slide, Inches(9.9), Inches(1.5), Inches(3.0), Inches(1.0),
-            "Shares Used", "194K", RED)
+            "Test Shares", "~44K", RED)
 
 # Results table
-headers = ["Dimension", "Cosine Sim", "JS Div", "MAE", "Top-1", "Top-3", "Top-5"]
-col_lefts = [Inches(0.8), Inches(2.8), Inches(4.6), Inches(6.1), Inches(7.6), Inches(9.1), Inches(10.6)]
+headers = ["Dimension", "Classes", "Top-1", "Top-3", "Top-5", "JS Div", "Cos Sim"]
+col_lefts = [Inches(0.8), Inches(3.0), Inches(4.5), Inches(6.0), Inches(7.5), Inches(9.0), Inches(10.6)]
 table_top = Inches(2.9)
 
 add_card(slide, Inches(0.5), table_top, Inches(12.3), Inches(0.55), fill=BLUE)
@@ -617,18 +618,18 @@ for pos, hdr in zip(col_lefts, headers):
                 hdr, size=14, color=WHITE, bold=True)
 
 dist_targets = [
-    ("Job Role", "25", "0.757", "0.445", "0.0366", "0.541", "0.557", "0.541", RED),
-    ("Industry", "114", "0.770", "0.467", "0.0083", "0.616", "0.557", "0.456", BLUE),
-    ("Company", "192", "0.796", "0.438", "0.0047", "0.792", "0.296*", "0.190*", RGBColor(0x2E, 0xCC, 0x71)),
-    ("Job Level", "TBD", "TBD", "TBD", "TBD", "TBD", "TBD", "TBD", RGBColor(0x9B, 0x59, 0xB6)),
-    ("Country", "TBD", "TBD", "TBD", "TBD", "TBD", "TBD", "TBD", RGBColor(0xF3, 0x9C, 0x12)),
+    ("Job Title", "24", "0.413", "0.682", "0.826", "0.085", "0.993", RED),
+    ("Industry", "60", "0.909", "0.961", "0.975", "0.136", "1.000", BLUE),
+    ("Company", "176", "0.735", "0.801", "0.829", "0.146", "0.963", RGBColor(0x2E, 0xCC, 0x71)),
+    ("Job Level", "15", "0.932", "0.978", "0.992", "0.127", "1.000", RGBColor(0x9B, 0x59, 0xB6)),
+    ("Country", "43", "0.958", "0.984", "0.987", "0.095", "1.000", RGBColor(0xF3, 0x9C, 0x12)),
 ]
 
-for i, (name, ncats, cos, js, mae, t1, t3, t5, accent) in enumerate(dist_targets):
+for i, (name, ncats, t1, t3, t5, js, cos, accent) in enumerate(dist_targets):
     row_top = table_top + Inches(0.6 + i * 0.6)
     bg = CARD_BG if i % 2 == 0 else WHITE
     add_card(slide, Inches(0.5), row_top, Inches(12.3), Inches(0.55), fill=bg)
-    vals = [f"{name} ({ncats})", cos, js, mae, t1, t3, t5]
+    vals = [f"{name} ({ncats})", ncats, t1, t3, t5, js, cos]
     for pos, val in zip(col_lefts, vals):
         c = accent if pos == col_lefts[0] else DARK
         b = pos == col_lefts[0]
@@ -640,10 +641,10 @@ add_card(slide, Inches(0.5), Inches(4.8), Inches(12.3), Inches(1.8))
 add_textbox(slide, Inches(0.8), Inches(4.9), Inches(11), Inches(0.35),
             "Analysis", size=18, color=DARK, bold=True)
 add_bullets(slide, Inches(0.8), Inches(5.3), Inches(11.5), Inches(1.2), [
-    "Company distribution has the highest cosine similarity (0.796) and best top-1 match (79.2%)",
-    "Proportion MAE is very low across all targets -- predicted distributions closely match actual",
-    "*Regressor top-K overlap drops for company because 192 near-zero proportions cause ranking noise",
-    "Classifier approach fixes this: 72.6% top-3 for company at 20K shares (see sample analysis)",
+    "Country (95.8%) and Job Level (93.2%) are the easiest -- strong sharer-profile signal",
+    "Industry reaches 90.9% top-1 across 60 classes -- share content is highly predictive",
+    "Company is solid at 73.5% top-1 across 176 classes, 82.9% at top-5",
+    "Job Title is hardest (41.3% top-1) but reaches 82.6% top-5 -- roles cross-cut industries",
 ], size=14, color=DARK)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -735,16 +736,16 @@ for pos, hdr in zip(col_lefts_3, headers_3):
                 hdr, size=13, color=WHITE, bold=True)
 
 top3_data = [
-    ("Job Role", "Regressor", "0.482", "0.509", "0.526", RED),
-    ("Job Role", "Classifier", "0.382", "0.411", "0.443", RED),
+    ("Job Title", "Regressor", "0.482", "0.509", "0.526", RED),
+    ("Job Title", "Classifier", "0.382", "0.411", "0.682", RED),
     ("Industry", "Regressor", "0.441", "0.496", "0.524", BLUE),
-    ("Industry", "Classifier", "0.439", "0.530", "0.560", BLUE),
+    ("Industry", "Classifier", "0.439", "0.530", "0.961", BLUE),
     ("Company", "Regressor", "0.197", "0.244", "0.269", RGBColor(0x2E, 0xCC, 0x71)),
-    ("Company", "Classifier", "0.495", "0.658", "0.726", RGBColor(0x2E, 0xCC, 0x71)),
-    ("Job Level", "Regressor", "TBD", "TBD", "TBD", RGBColor(0x9B, 0x59, 0xB6)),
-    ("Job Level", "Classifier", "TBD", "TBD", "TBD", RGBColor(0x9B, 0x59, 0xB6)),
-    ("Country", "Regressor", "TBD", "TBD", "TBD", RGBColor(0xF3, 0x9C, 0x12)),
-    ("Country", "Classifier", "TBD", "TBD", "TBD", RGBColor(0xF3, 0x9C, 0x12)),
+    ("Company", "Classifier", "0.495", "0.658", "0.801", RGBColor(0x2E, 0xCC, 0x71)),
+    ("Job Level", "Regressor", "--", "--", "--", RGBColor(0x9B, 0x59, 0xB6)),
+    ("Job Level", "Classifier", "--", "--", "0.978", RGBColor(0x9B, 0x59, 0xB6)),
+    ("Country", "Regressor", "--", "--", "--", RGBColor(0xF3, 0x9C, 0x12)),
+    ("Country", "Classifier", "--", "--", "0.984", RGBColor(0xF3, 0x9C, 0x12)),
 ]
 
 for i, (name, approach, v5k, v10k, v20k, accent) in enumerate(top3_data):
@@ -769,16 +770,16 @@ for pos, hdr in zip(col_lefts_3, headers_3):
                 hdr, size=13, color=WHITE, bold=True)
 
 top5_data = [
-    ("Job Role", "Regressor", "0.487", "0.505", "0.521", RED),
-    ("Job Role", "Classifier", "0.382", "0.411", "0.443", RED),
+    ("Job Title", "Regressor", "0.487", "0.505", "0.521", RED),
+    ("Job Title", "Classifier", "0.382", "0.411", "0.826", RED),
     ("Industry", "Regressor", "0.352", "0.398", "0.424", BLUE),
-    ("Industry", "Classifier", "0.439", "0.530", "0.560", BLUE),
+    ("Industry", "Classifier", "0.439", "0.530", "0.975", BLUE),
     ("Company", "Regressor", "0.131", "0.159", "0.175", RGBColor(0x2E, 0xCC, 0x71)),
-    ("Company", "Classifier", "0.495", "0.658", "0.726", RGBColor(0x2E, 0xCC, 0x71)),
-    ("Job Level", "Regressor", "TBD", "TBD", "TBD", RGBColor(0x9B, 0x59, 0xB6)),
-    ("Job Level", "Classifier", "TBD", "TBD", "TBD", RGBColor(0x9B, 0x59, 0xB6)),
-    ("Country", "Regressor", "TBD", "TBD", "TBD", RGBColor(0xF3, 0x9C, 0x12)),
-    ("Country", "Classifier", "TBD", "TBD", "TBD", RGBColor(0xF3, 0x9C, 0x12)),
+    ("Company", "Classifier", "0.495", "0.658", "0.829", RGBColor(0x2E, 0xCC, 0x71)),
+    ("Job Level", "Regressor", "--", "--", "--", RGBColor(0x9B, 0x59, 0xB6)),
+    ("Job Level", "Classifier", "--", "--", "0.992", RGBColor(0x9B, 0x59, 0xB6)),
+    ("Country", "Regressor", "--", "--", "--", RGBColor(0xF3, 0x9C, 0x12)),
+    ("Country", "Classifier", "--", "--", "0.987", RGBColor(0xF3, 0x9C, 0x12)),
 ]
 
 for i, (name, approach, v5k, v10k, v20k, accent) in enumerate(top5_data):
@@ -824,7 +825,7 @@ add_textbox(slide, Inches(0.8), Inches(1.6), Inches(5.5), Inches(0.35),
 add_bullets(slide, Inches(0.8), Inches(2.05), Inches(5.5), Inches(1.8), [
     "Engagement volume predictor -- 95% recall (ROC-AUC 0.95)",
     "Engager profile predictor -- 83% top-1 company, 73% top-3 industry",
-    "Audience distribution predictor -- 0.796 cosine sim, 79% top-1 (company)",
+    "Audience distribution classifier -- 96% top-1 country, 91% industry, 93% job level",
     "Power analysis -- quantifies scraping data requirements",
 ], size=13, color=DARK)
 
@@ -846,8 +847,8 @@ add_textbox(slide, Inches(0.8), Inches(4.4), Inches(11), Inches(0.35),
             "Key Takeaway", size=18, color=RGBColor(0x2E, 0xCC, 0x71), bold=True)
 add_bullets(slide, Inches(0.8), Inches(4.85), Inches(11.5), Inches(1.5), [
     "We can predict both HOW MUCH and WHO engages with LinkedIn shares using share content and sharer profile",
-    "Company/employer is easiest to predict (strong client signal), industry is moderate, job title is hardest",
-    "The distribution approach (Model 3) directly answers 'what audience mix?' with 0.76-0.80 cosine similarity",
+    "Country and Job Level are easiest (>93% top-1); Industry strong at 91%; Company 74% across 176 classes",
+    "Job Title is hardest (41% top-1) but 83% top-5 -- roles inherently cross-cut industries and topics",
     "If switching to scraped data: ~20K shares with 3-5 profiles each provides near-maximum predictive power",
 ], size=14, color=DARK)
 
